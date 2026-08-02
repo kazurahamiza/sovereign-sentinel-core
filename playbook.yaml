@@ -1,0 +1,28 @@
+id: playbook-lsass-protection-01
+name: LSASS Memory Access Neutralization & Containment
+trigger:
+  event_type: MEMORY_INJECTION_DETECTED
+  target_process: "lsass.exe"
+  min_risk_score: 65
+
+actions:
+  - step: 1
+    action: DUMP_PROCESS_MEMORY
+    target: "SOURCE_PID"
+    destination: "/var/log/sentinel/forensics/dumps/"
+
+  - step: 2
+    action: TERMINATE_PROCESS_TREE
+    target: "SOURCE_PID"
+    include_children: true
+
+  - step: 3
+    action: NETWORK_ISOLATE
+    target: "SOURCE_PID"
+    mode: DROP_ALL
+
+  - step: 4
+    action: MESH_BROADCAST_IMMUNIZATION
+    payload:
+      include_hash: true
+      include_yara: true
