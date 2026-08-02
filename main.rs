@@ -1,70 +1,55 @@
-use std::collections::HashSet;
-use tokio::sync::mpsc;
+// main.rs
+use std::ffi::CString;
+use std::os::windows::raw::HANDLE;
+use windows_sys::Win32::Storage::InstallableFileSystems::{
+    FilterConnectCommunicationPort, FilterSendMessage,
+};
 
-#[derive(Debug)]
-pub enum Verdict {
-    Allow,
-    Block,
-    Quarantine,
+#[repr(C)]
+struct ScanRequest {
+    file_path: [u16; 260],
+    process_id: u32,
 }
 
-#[derive(Debug)]
-pub struct ScanRequest {
-    pub process_id: u32,
-    pub file_path: String,
-    pub sha256_hash: String,
+#[repr(C)]
+enum ScanVerdict {
+    Allow = 0,
+    Block = 1,
+    Quarantine = 2,
 }
 
-pub struct ScanEngine {
-    blacklisted_hashes: HashSet<String>,
-}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("[+] Starting Sovereign Sentinel User-Space Engine...");
 
-impl ScanEngine {
-    pub fn new() -> Self {
-        let mut hashes = HashSet::new();
-        // Insert initial blacklisted hashes
-        hashes.insert("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string());
-        Self { blacklisted_hashes: hashes }
-    }
+    let port_name = wide_string("\\SovereignSentinelPort");
+    let mut port_handle: HANDLE = std::ptr::null_mut();
 
-    pub fn evaluate(&self, request: &ScanRequest) -> Verdict {
-        // 1. Check Hash Blacklist
-        if self.blacklisted_hashes.contains(&request.sha256_hash) {
-            return Verdict::Block;
+    unsafe {
+        let hr = FilterConnectCommunicationPort(
+            port_name.as_ptr(),
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            &mut port_handle,
+        );
+
+        if hr != 0 {
+            eprintln!("[-] Failed to connect to Kernel Bridge. Error: 0x{:X}", hr);
+            return Ok(());
         }
+    }
 
-        // 2. TODO: YARA Rule Pattern Matching Engine
-        // 3. TODO: PE Section Entropy & Import Analysis
+    println!("[+] Successfully connected to Kernel Bridge.");
 
-        Verdict::Allow
+    // Event Loop: Listen for kernel inspection requests
+    loop {
+        // 1. Receive file handle/path from driver
+        // 2. Perform Heuristic Analysis (heuristics.rs)
+        // 3. Send back verdict (Allow/Block/Quarantine)
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("[+] Sovereign Sentinel Scanner Engine Started.");
-    
-    let engine = ScanEngine::new();
-    let (tx, mut rx) = mpsc::channel::<ScanRequest>(1000);
-
-    // Simulated task reading from Kernel Communication Port
-    tokio::spawn(async move {
-        // Intercepted file event coming from Kernel Driver
-        let incoming_event = ScanRequest {
-            process_id: 4096,
-            file_path: "C:\\Windows\\Temp\\payload.exe".to_string(),
-            sha256_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
-        };
-        let _ = tx.send(incoming_event).await;
-    });
-
-    // Main Engine Processing Loop
-    while let Some(request) = rx.recv().await {
-        let verdict = engine.evaluate(&request);
-        println!("[SCAN] Target: {} | Verdict: {:?}", request.file_path, verdict);
-
-        // Send 'verdict' reply back to Kernel Filter Communication Port
-    }
-
-    Ok(())
+fn wide_string(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
